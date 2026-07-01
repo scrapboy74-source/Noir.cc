@@ -20,16 +20,27 @@ end
 
 local function GetWindowSize()
     local Screen = GetScreenSize()
-    if Screen.X < 500 then
-        -- Small mobile: use almost full width, keep it short so it doesn't run off screen
-        return UDim2.fromOffset(Screen.X - 6, math.min(360, Screen.Y - 90))
-    elseif Screen.X < 800 then
-        -- Tablet / large mobile: wider, shorter
-        return UDim2.fromOffset(math.min(680, Screen.X - 10), math.min(420, Screen.Y - 90))
+    local width, height
+
+    if IsMobile or Screen.X < 800 then
+        -- Touch device (or narrow screen): prioritize fitting the ACTUAL
+        -- viewport. Landscape phones report a wide Screen.X but still have
+        -- limited height, so height must be derived from Screen.Y, not
+        -- assumed from width.
+        width = math.min(680, Screen.X - 10)
+        height = math.min(340, Screen.Y - 50)
     else
         -- Desktop
-        return UDim2.fromOffset(550, 600)
+        width = 550
+        height = 600
     end
+
+    -- Hard clamp: the window can never be bigger than the screen itself,
+    -- regardless of which branch above picked it.
+    width = math.min(width, Screen.X - 10)
+    height = math.min(height, Screen.Y - 30)
+
+    return UDim2.fromOffset(width, height)
 end
 
 local function GetWindowPosition()
