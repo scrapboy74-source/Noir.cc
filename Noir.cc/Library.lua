@@ -1616,6 +1616,7 @@ do
         local ToggleOuter = Library:Create('Frame', {
             BackgroundColor3 = Color3.new(0, 0, 0);
             BorderColor3 = Color3.new(0, 0, 0);
+            Active = true;
             Size = UDim2.new(0, toggleSize, 0, toggleSize);
             ZIndex = 5;
             Parent = Container;
@@ -1655,7 +1656,7 @@ do
             BackgroundTransparency = 0.999;
             Active = true;
             Size = UDim2.new(0, IsMobile and 220 or 170, 1, 0);
-            ZIndex = 8;
+            ZIndex = 50;
             Parent = ToggleOuter;
         });
 
