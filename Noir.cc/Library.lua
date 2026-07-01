@@ -183,6 +183,7 @@ function Library:MakeDraggable(Instance, Cutoff)
     local dragging = false
     local dragStart = nil
     local startPos = nil
+    local touchInput = nil
 
     local function OnInputBegan(Input)
         local isTouch = Input.UserInputType == Enum.UserInputType.Touch
@@ -200,6 +201,7 @@ function Library:MakeDraggable(Instance, Cutoff)
             dragging = true
             dragStart = position
             startPos = Instance.Position
+            if isTouch then touchInput = Input end
 
             local connection
             connection = RunService.RenderStepped:Connect(function()
@@ -241,6 +243,7 @@ function Library:MakeDraggable(Instance, Cutoff)
         if Input.UserInputType == Enum.UserInputType.Touch
             or Input.UserInputType == Enum.UserInputType.MouseButton1 then
             dragging = false
+            touchInput = nil
         end
     end
 
@@ -405,14 +408,22 @@ end))
 
 -- Helper to handle both touch and mouse input on UI elements
 local function ConnectInput(instance, callback)
+    if not instance then return end
+    
     instance.InputBegan:Connect(function(Input)
         if Input.UserInputType == Enum.UserInputType.MouseButton1
             or Input.UserInputType == Enum.UserInputType.Touch then
             callback(Input)
         end
     end)
+end
+
+-- Special helper for mobile buttons that might not trigger InputBegan properly
+local function ConnectMobileTap(instance, callback)
+    if not instance then return end
     
-    -- Additional touch support for mobile
+    ConnectInput(instance, callback)
+    
     if IsMobile then
         instance.TouchTap:Connect(function()
             callback({ UserInputType = Enum.UserInputType.Touch })
@@ -862,8 +873,8 @@ do
         end;
 
         -- Touch/mouse input for SatVibMap
-        local function HandleSatVib(Input)
-            local pos = Input.Position
+        local function HandleSatVib(pos)
+            if not SatVibMap or not SatVibMap.Parent then return end
             local MinX = SatVibMap.AbsolutePosition.X
             local MaxX = MinX + SatVibMap.AbsoluteSize.X
             local MouseX = math.clamp(pos.X, MinX, MaxX)
@@ -879,23 +890,49 @@ do
             if Input.UserInputType == Enum.UserInputType.MouseButton1
                 or Input.UserInputType == Enum.UserInputType.Touch then
                 local connection
-                connection = Input.Changed:Connect(function()
+                local function update()
+                    local pos
                     if Input.UserInputType == Enum.UserInputType.Touch then
-                        HandleSatVib(Input)
+                        local touches = InputService:GetTouchInputs()
+                        if #touches > 0 then
+                            pos = touches[1].Position
+                        else
+                            return
+                        end
+                    else
+                        pos = Vector2.new(Mouse.X, Mouse.Y)
                     end
-                end)
-                while InputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) do
-                    HandleSatVib({ Position = Vector2.new(Mouse.X, Mouse.Y) })
-                    RenderStepped:Wait()
+                    HandleSatVib(pos)
                 end
-                if connection then connection:Disconnect() end
+                
+                if Input.UserInputType == Enum.UserInputType.Touch then
+                    -- For touch, we need to track the touch movement
+                    connection = RunService.RenderStepped:Connect(function()
+                        local touches = InputService:GetTouchInputs()
+                        if #touches == 0 then
+                            if connection then connection:Disconnect() end
+                            return
+                        end
+                        HandleSatVib(touches[1].Position)
+                    end)
+                else
+                    connection = RunService.RenderStepped:Connect(function()
+                        if not InputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) then
+                            if connection then connection:Disconnect() end
+                            return
+                        end
+                        HandleSatVib(Vector2.new(Mouse.X, Mouse.Y))
+                    end)
+                end
+                -- Do initial update
+                update()
                 Library:AttemptSave()
             end
         end)
 
         -- Touch/mouse for hue selector
-        local function HandleHue(Input)
-            local pos = Input.Position or Vector2.new(Mouse.X, Mouse.Y)
+        local function HandleHue(pos)
+            if not HueSelectorInner or not HueSelectorInner.Parent then return end
             local MinY = HueSelectorInner.AbsolutePosition.Y
             local MaxY = MinY + HueSelectorInner.AbsoluteSize.Y
             local MouseY = math.clamp(pos.Y, MinY, MaxY)
@@ -908,19 +945,29 @@ do
                 or Input.UserInputType == Enum.UserInputType.Touch then
                 local connection
                 if Input.UserInputType == Enum.UserInputType.Touch then
-                    connection = Input.Changed:Connect(function()
-                        HandleHue(Input)
+                    connection = RunService.RenderStepped:Connect(function()
+                        local touches = InputService:GetTouchInputs()
+                        if #touches == 0 then
+                            if connection then connection:Disconnect() end
+                            return
+                        end
+                        HandleHue(touches[1].Position)
+                    end)
+                else
+                    connection = RunService.RenderStepped:Connect(function()
+                        if not InputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) then
+                            if connection then connection:Disconnect() end
+                            return
+                        end
+                        HandleHue(Vector2.new(Mouse.X, Mouse.Y))
                     end)
                 end
-                while InputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) do
-                    HandleHue({ Position = Vector2.new(Mouse.X, Mouse.Y) })
-                    RenderStepped:Wait()
-                end
-                if connection then connection:Disconnect() end
+                HandleHue(Input.UserInputType == Enum.UserInputType.Touch and Input.Position or Vector2.new(Mouse.X, Mouse.Y))
                 Library:AttemptSave()
             end
         end)
 
+        -- Handle color picker display click
         DisplayFrame.InputBegan:Connect(function(Input)
             if (Input.UserInputType == Enum.UserInputType.MouseButton1 or Input.UserInputType == Enum.UserInputType.Touch)
                 and not Library:MouseIsOverOpenedFrame() then
@@ -941,6 +988,7 @@ do
                 if Input.UserInputType == Enum.UserInputType.MouseButton1
                     or Input.UserInputType == Enum.UserInputType.Touch then
                     local function handleTrans(pos)
+                        if not TransparencyBoxInner or not TransparencyBoxInner.Parent then return end
                         local MinX = TransparencyBoxInner.AbsolutePosition.X
                         local MaxX = MinX + TransparencyBoxInner.AbsoluteSize.X
                         local MouseX = math.clamp(pos.X, MinX, MaxX)
@@ -949,15 +997,24 @@ do
                     end
                     local connection
                     if Input.UserInputType == Enum.UserInputType.Touch then
-                        connection = Input.Changed:Connect(function()
-                            handleTrans(Input.Position)
+                        connection = RunService.RenderStepped:Connect(function()
+                            local touches = InputService:GetTouchInputs()
+                            if #touches == 0 then
+                                if connection then connection:Disconnect() end
+                                return
+                            end
+                            handleTrans(touches[1].Position)
+                        end)
+                    else
+                        connection = RunService.RenderStepped:Connect(function()
+                            if not InputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) then
+                                if connection then connection:Disconnect() end
+                                return
+                            end
+                            handleTrans(Vector2.new(Mouse.X, Mouse.Y))
                         end)
                     end
-                    while InputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) do
-                        handleTrans(Vector2.new(Mouse.X, Mouse.Y))
-                        RenderStepped:Wait()
-                    end
-                    if connection then connection:Disconnect() end
+                    handleTrans(Input.UserInputType == Enum.UserInputType.Touch and Input.Position or Vector2.new(Mouse.X, Mouse.Y))
                     Library:AttemptSave()
                 end
             end)
@@ -1372,22 +1429,6 @@ do
         end
 
         local function InitEvents(Button)
-            local function WaitForEvent(event, timeout, validator)
-                local bindable = Instance.new('BindableEvent')
-                local connection = event:Once(function(...)
-                    if type(validator) == 'function' and validator(...) then
-                        bindable:Fire(true)
-                    else
-                        bindable:Fire(false)
-                    end
-                end)
-                task.delay(timeout, function()
-                    connection:disconnect()
-                    bindable:Fire(false)
-                end)
-                return bindable.Event:Wait()
-            end
-
             local function ValidateClick(Input)
                 if Library:MouseIsOverOpenedFrame() then return false end
                 if Input.UserInputType ~= Enum.UserInputType.MouseButton1
@@ -1397,7 +1438,8 @@ do
                 return true
             end
 
-            Button.Outer.InputBegan:Connect(function(Input)
+            -- Use ConnectMobileTap for better mobile support
+            ConnectMobileTap(Button.Outer, function(Input)
                 if not ValidateClick(Input) then return end
                 if Button.Locked then return end
 
@@ -1407,7 +1449,26 @@ do
                     Button.Label.TextColor3 = Library.AccentColor
                     Button.Label.Text = 'Are you sure?'
                     Button.Locked = true
-                    local clicked = WaitForEvent(Button.Outer.InputBegan, IsMobile and 1 or 0.5, ValidateClick)
+                    
+                    -- Wait for next click on mobile or desktop
+                    local function waitForClick()
+                        local bindable = Instance.new('BindableEvent')
+                        local connection
+                        local function onInput(input)
+                            if ValidateClick(input) then
+                                connection:Disconnect()
+                                bindable:Fire(true)
+                            end
+                        end
+                        connection = InputService.InputBegan:Connect(onInput)
+                        task.delay(IsMobile and 1.5 or 0.5, function()
+                            connection:Disconnect()
+                            bindable:Fire(false)
+                        end)
+                        return bindable.Event:Wait()
+                    end
+                    
+                    local clicked = waitForClick()
                     Library:RemoveFromRegistry(Button.Label)
                     Library:AddToRegistry(Button.Label, { TextColor3 = 'FontColor' })
                     Button.Label.TextColor3 = Library.FontColor
@@ -1704,25 +1765,13 @@ do
             Library:UpdateDependencyBoxes();
         end;
 
-        -- Fix: Use both InputBegan and TouchTap for mobile
-        ToggleRegion.InputBegan:Connect(function(Input)
-            if Input.UserInputType == Enum.UserInputType.MouseButton1 or Input.UserInputType == Enum.UserInputType.Touch then
-                if not Library:MouseIsOverOpenedFrame() then
-                    Toggle:SetValue(not Toggle.Value)
-                    Library:AttemptSave();
-                end
+        -- Use ConnectMobileTap for better mobile support
+        ConnectMobileTap(ToggleRegion, function(Input)
+            if not Library:MouseIsOverOpenedFrame() then
+                Toggle:SetValue(not Toggle.Value)
+                Library:AttemptSave();
             end
         end)
-        
-        -- Additional touch support for mobile
-        if IsMobile then
-            ToggleRegion.TouchTap:Connect(function()
-                if not Library:MouseIsOverOpenedFrame() then
-                    Toggle:SetValue(not Toggle.Value)
-                    Library:AttemptSave();
-                end
-            end)
-        end
 
         if Toggle.Risky then
             Library:RemoveFromRegistry(ToggleLabel)
@@ -1894,10 +1943,11 @@ do
                     end
                     HandleSliderTouch(Vector2.new(Mouse.X, Mouse.Y))
                 end)
+                HandleSliderTouch(Vector2.new(Mouse.X, Mouse.Y))
             end
         end)
 
-        -- Touch handler for mobile - FIXED
+        -- Touch handler for mobile
         SliderInner.InputBegan:Connect(function(Input)
             if Input.UserInputType == Enum.UserInputType.Touch
                 and not Library:MouseIsOverOpenedFrame() then
@@ -1911,6 +1961,10 @@ do
                     end
                     HandleSliderTouch(touches[1].Position)
                 end)
+                local touches = InputService:GetTouchInputs()
+                if #touches > 0 then
+                    HandleSliderTouch(touches[1].Position)
+                end
             end
         end)
 
@@ -2156,24 +2210,9 @@ do
                     end;
                 end
 
-                -- Fix dropdown item selection for mobile
-                Button.Active = true
-                Button.InputBegan:Connect(function(Input)
-                    if Input.UserInputType == Enum.UserInputType.MouseButton1 
-                        or Input.UserInputType == Enum.UserInputType.Touch then
-                        SelectItem()
-                    end
-                end)
-                ButtonLabel.InputBegan:Connect(function(Input)
-                    if Input.UserInputType == Enum.UserInputType.MouseButton1 
-                        or Input.UserInputType == Enum.UserInputType.Touch then
-                        SelectItem()
-                    end
-                end)
-                if IsMobile then
-                    Button.TouchTap:Connect(SelectItem)
-                    ButtonLabel.TouchTap:Connect(SelectItem)
-                end
+                -- Use ConnectMobileTap for better mobile support
+                ConnectMobileTap(Button, SelectItem)
+                ConnectMobileTap(ButtonLabel, SelectItem)
 
                 Table:UpdateButton();
                 Dropdown:Display();
@@ -2228,30 +2267,11 @@ do
             end
         end
 
-        -- Make the dropdown clickable on mobile - FIXED
-        DropdownInner.Active = true
-        ItemList.Active = true
-        DropdownArrow.Active = true
-        
-        -- Use both InputBegan and TouchTap for mobile
-        local function handleDropdownClick(Input)
-            if not Input or Input.UserInputType == Enum.UserInputType.MouseButton1 
-                or Input.UserInputType == Enum.UserInputType.Touch then
-                ToggleDropdownOpen()
-            end
-        end
-        
-        DropdownOuter.InputBegan:Connect(handleDropdownClick)
-        DropdownInner.InputBegan:Connect(handleDropdownClick)
-        ItemList.InputBegan:Connect(handleDropdownClick)
-        DropdownArrow.InputBegan:Connect(handleDropdownClick)
-        
-        if IsMobile then
-            DropdownOuter.TouchTap:Connect(ToggleDropdownOpen)
-            DropdownInner.TouchTap:Connect(ToggleDropdownOpen)
-            ItemList.TouchTap:Connect(ToggleDropdownOpen)
-            DropdownArrow.TouchTap:Connect(ToggleDropdownOpen)
-        end
+        -- Use ConnectMobileTap for better mobile support
+        ConnectMobileTap(DropdownOuter, ToggleDropdownOpen)
+        ConnectMobileTap(DropdownInner, ToggleDropdownOpen)
+        ConnectMobileTap(ItemList, ToggleDropdownOpen)
+        ConnectMobileTap(DropdownArrow, ToggleDropdownOpen)
 
         Library:GiveSignal(InputService.InputBegan:Connect(function(Input)
             if Input.UserInputType == Enum.UserInputType.MouseButton1
@@ -2667,9 +2687,9 @@ function Library:CreateWindow(...)
     local function CloseWindow()
         Library:Toggle()
     end
-    ConnectInput(CloseOuter, CloseWindow)
-    ConnectInput(CloseInner, CloseWindow)
-    ConnectInput(CloseLabel, CloseWindow)
+    ConnectMobileTap(CloseOuter, CloseWindow)
+    ConnectMobileTap(CloseInner, CloseWindow)
+    ConnectMobileTap(CloseLabel, CloseWindow)
 
     local MainSectionOuter = Library:Create('Frame', {
         BackgroundColor3 = Library.BackgroundColor;
@@ -3021,8 +3041,8 @@ function Library:CreateWindow(...)
                         Tab:Show(); Tab:Resize();
                     end
                 end
-                ConnectInput(Button, SwitchToThisTab)
-                ConnectInput(ButtonLabel, SwitchToThisTab)
+                ConnectMobileTap(Button, SwitchToThisTab)
+                ConnectMobileTap(ButtonLabel, SwitchToThisTab)
 
                 Tab.Container = Container;
                 Tabbox.Tabs[Name] = Tab;
@@ -3040,7 +3060,7 @@ function Library:CreateWindow(...)
         function Tab:AddLeftTabbox(Name) return Tab:AddTabbox({ Name = Name, Side = 1; }); end;
         function Tab:AddRightTabbox(Name) return Tab:AddTabbox({ Name = Name, Side = 2; }); end;
 
-        ConnectInput(TabButton, function()
+        ConnectMobileTap(TabButton, function()
             Tab:ShowTab();
         end)
 
