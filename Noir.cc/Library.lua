@@ -21,11 +21,11 @@ end
 local function GetWindowSize()
     local Screen = GetScreenSize()
     if Screen.X < 500 then
-        -- Small mobile
-        return UDim2.fromOffset(Screen.X - 10, Screen.Y - 60)
+        -- Small mobile: use almost full width, keep it short so it doesn't run off screen
+        return UDim2.fromOffset(Screen.X - 6, math.min(360, Screen.Y - 90))
     elseif Screen.X < 800 then
-        -- Tablet / large mobile
-        return UDim2.fromOffset(math.min(600, Screen.X - 20), math.min(500, Screen.Y - 60))
+        -- Tablet / large mobile: wider, shorter
+        return UDim2.fromOffset(math.min(680, Screen.X - 10), math.min(420, Screen.Y - 90))
     else
         -- Desktop
         return UDim2.fromOffset(550, 600)
@@ -422,6 +422,7 @@ do
             BackgroundColor3 = ColorPicker.Value;
             BorderColor3 = Library:GetDarkerColor(ColorPicker.Value);
             BorderMode = Enum.BorderMode.Inset;
+            Active = true;
             Size = UDim2.new(0, 28, 0, 14);
             ZIndex = 6;
             Parent = ToggleLabel;
@@ -988,6 +989,7 @@ do
         local PickOuter = Library:Create('Frame', {
             BackgroundColor3 = Color3.new(0, 0, 0);
             BorderColor3 = Color3.new(0, 0, 0);
+            Active = true;
             Size = UDim2.new(0, 28, 0, IsMobile and 22 or 15);
             ZIndex = 6;
             Parent = ToggleLabel;
@@ -1309,6 +1311,7 @@ do
             local Outer = Library:Create('Frame', {
                 BackgroundColor3 = Color3.new(0, 0, 0);
                 BorderColor3 = Color3.new(0, 0, 0);
+                Active = true;
                 Size = UDim2.new(1, -4, 0, IsMobile and 28 or 20);
                 ZIndex = 5;
             });
@@ -1639,6 +1642,7 @@ do
         -- Larger hit area for mobile
         local ToggleRegion = Library:Create('Frame', {
             BackgroundTransparency = 1;
+            Active = true;
             Size = UDim2.new(0, IsMobile and 220 or 170, 1, 0);
             ZIndex = 8;
             Parent = ToggleOuter;
@@ -1733,6 +1737,7 @@ do
         local SliderOuter = Library:Create('Frame', {
             BackgroundColor3 = Color3.new(0, 0, 0);
             BorderColor3 = Color3.new(0, 0, 0);
+            Active = true;
             Size = UDim2.new(1, -4, 0, sliderHeight);
             ZIndex = 5;
             Parent = Container;
@@ -1743,6 +1748,7 @@ do
             BackgroundColor3 = Library.MainColor;
             BorderColor3 = Library.OutlineColor;
             BorderMode = Enum.BorderMode.Inset;
+            Active = true;
             Size = UDim2.new(1, 0, 1, 0);
             ZIndex = 6;
             Parent = SliderOuter;
@@ -1929,6 +1935,7 @@ do
         local DropdownOuter = Library:Create('Frame', {
             BackgroundColor3 = Color3.new(0, 0, 0);
             BorderColor3 = Color3.new(0, 0, 0);
+            Active = true;
             Size = UDim2.new(1, -4, 0, IsMobile and 28 or 20);
             ZIndex = 5;
             Parent = Container;
@@ -2524,7 +2531,7 @@ function Library:CreateWindow(...)
         Parent = ScreenGui;
     });
 
-    Library:MakeDraggable(Outer, 25);
+    Library:MakeDraggable(Outer, IsMobile and 34 or 25);
 
     -- Update size if screen changes (orientation change on mobile)
     workspace.CurrentCamera:GetPropertyChangedSignal('ViewportSize'):Connect(function()
@@ -2592,6 +2599,7 @@ function Library:CreateWindow(...)
     local TabContainer = Library:Create('Frame', {
         BackgroundColor3 = Library.MainColor;
         BorderColor3 = Library.OutlineColor;
+        ClipsDescendants = true;
         Position = UDim2.new(0, 8, 0, IsMobile and 37 or 30);
         Size = UDim2.new(1, -16, 1, IsMobile and -45 or -38);
         ZIndex = 2;
@@ -2608,6 +2616,7 @@ function Library:CreateWindow(...)
         local TabButton = Library:Create('Frame', {
             BackgroundColor3 = Library.BackgroundColor;
             BorderColor3 = Library.OutlineColor;
+            Active = true;
             Size = UDim2.new(0, TabButtonWidth + 8 + 4, 1, 0);
             ZIndex = 1;
             Parent = TabArea;
@@ -2641,7 +2650,10 @@ function Library:CreateWindow(...)
             Parent = TabContainer;
         });
 
-        local sideHeight = IsMobile and 450 or 507
+        -- Derive the scrollable content height from the actual window size so it
+        -- always fits inside the visible tab area, on any screen size.
+        local sideHeight = Config.Size.Y.Offset - (IsMobile and 90 or 90)
+        if sideHeight < 100 then sideHeight = 100 end
 
         local LeftSide = Library:Create('ScrollingFrame', {
             BackgroundTransparency = 1;
@@ -2826,6 +2838,7 @@ function Library:CreateWindow(...)
                 local Button = Library:Create('Frame', {
                     BackgroundColor3 = Library.MainColor;
                     BorderColor3 = Color3.new(0, 0, 0);
+                    Active = true;
                     Size = UDim2.new(0.5, 0, 1, 0);
                     ZIndex = 6;
                     Parent = TabboxButtons;
