@@ -720,7 +720,7 @@ do
             function ContextMenu:AddOption(Str, Callback)
                 if type(Callback) ~= 'function' then Callback = function() end end
                 local Button = Library:CreateLabel({
-                    Active = false;
+                    Active = true;
                     Size = UDim2.new(1, 0, 0, IsMobile and 22 or 15);
                     TextSize = 13;
                     Text = Str;
@@ -1072,7 +1072,7 @@ do
         for Idx, Mode in next, Modes do
             local ModeButton = {};
             local Label = Library:CreateLabel({
-                Active = false;
+                Active = true;
                 Size = UDim2.new(1, 0, 0, IsMobile and 22 or 15);
                 TextSize = 13;
                 Text = Mode;
@@ -2102,7 +2102,7 @@ do
                 });
                 Library:AddToRegistry(Button, { BackgroundColor3 = 'MainColor'; BorderColor3 = 'OutlineColor'; });
                 local ButtonLabel = Library:CreateLabel({
-                    Active = false;
+                    Active = true;
                     Size = UDim2.new(1, -6, 1, 0);
                     Position = UDim2.new(0, 6, 0, 0);
                     TextSize = 14;
@@ -2126,7 +2126,7 @@ do
                     Library.RegistryMap[ButtonLabel].Properties.TextColor3 = Selected and 'AccentColor' or 'FontColor';
                 end;
 
-                ConnectInput(ButtonLabel, function(Input)
+                local function SelectItem(Input)
                     local Try = not Selected;
                     if Dropdown:GetActiveValues() == 1 and (not Try) and (not Info.AllowNull) then
                     else
@@ -2146,7 +2146,11 @@ do
                         Library:SafeCallback(Dropdown.Changed, Dropdown.Value);
                         Library:AttemptSave();
                     end;
-                end)
+                end
+
+                Button.Active = true
+                ConnectInput(ButtonLabel, SelectItem)
+                ConnectInput(Button, SelectItem)
 
                 Table:UpdateButton();
                 Dropdown:Display();
@@ -2194,12 +2198,23 @@ do
             Library:SafeCallback(Dropdown.Changed, Dropdown.Value);
         end;
 
-        ConnectInput(DropdownOuter, function(Input)
+        local function ToggleDropdownOpen()
             if not Library:MouseIsOverOpenedFrame() then
                 if ListOuter.Visible then Dropdown:CloseDropdown();
                 else Dropdown:OpenDropdown(); end;
             end
-        end)
+        end
+
+        -- The arrow icon and text label are drawn ON TOP of DropdownOuter
+        -- (higher ZIndex), so a tap on them never reached DropdownOuter's
+        -- own handler and just got swallowed. Wire every visible layer.
+        DropdownInner.Active = true
+        ItemList.Active = true
+        DropdownArrow.Active = true
+        ConnectInput(DropdownOuter, ToggleDropdownOpen)
+        ConnectInput(DropdownInner, ToggleDropdownOpen)
+        ConnectInput(ItemList, ToggleDropdownOpen)
+        ConnectInput(DropdownArrow, ToggleDropdownOpen)
 
         Library:GiveSignal(InputService.InputBegan:Connect(function(Input)
             if Input.UserInputType == Enum.UserInputType.MouseButton1
@@ -2566,11 +2581,60 @@ function Library:CreateWindow(...)
     local WindowLabel = Library:CreateLabel({
         Position = UDim2.new(0, 7, 0, 0);
         Size = UDim2.new(0, 0, 0, 25);
+        Font = Enum.Font.Bangers;
+        TextSize = 20;
+        TextColor3 = Library.AccentColor;
         Text = Config.Title or '';
         TextXAlignment = Enum.TextXAlignment.Left;
         ZIndex = 1;
         Parent = Inner;
     });
+    Library.RegistryMap[WindowLabel].Properties.TextColor3 = 'AccentColor';
+
+    -- Close button: small square, matches the library's border/fill style
+    -- (not a circle), sits in the top-right corner of the title bar.
+    local closeSize = IsMobile and 20 or 16
+    local CloseOuter = Library:Create('Frame', {
+        AnchorPoint = Vector2.new(1, 0);
+        BackgroundColor3 = Color3.new(0, 0, 0);
+        BorderColor3 = Color3.new(0, 0, 0);
+        Active = true;
+        Position = UDim2.new(1, -6, 0, 5);
+        Size = UDim2.new(0, closeSize, 0, closeSize);
+        ZIndex = 5;
+        Parent = Inner;
+    });
+    local CloseInner = Library:Create('Frame', {
+        BackgroundColor3 = Library.MainColor;
+        BorderColor3 = Library.OutlineColor;
+        BorderMode = Enum.BorderMode.Inset;
+        Active = true;
+        Size = UDim2.new(1, 0, 1, 0);
+        ZIndex = 6;
+        Parent = CloseOuter;
+    });
+    Library:AddToRegistry(CloseInner, { BackgroundColor3 = 'MainColor'; BorderColor3 = 'OutlineColor'; });
+    local CloseLabel = Library:CreateLabel({
+        Active = true;
+        Size = UDim2.new(1, 0, 1, 0);
+        TextSize = 14;
+        Text = 'X';
+        TextXAlignment = Enum.TextXAlignment.Center;
+        ZIndex = 7;
+        Parent = CloseInner;
+    });
+    Library:OnHighlight(CloseOuter, CloseOuter,
+        { BorderColor3 = 'AccentColor' },
+        { BorderColor3 = 'Black' }
+    );
+    if type(Library.AddToolTip) == 'function' then Library:AddToolTip('Close', CloseOuter) end
+
+    local function CloseWindow()
+        Library:Toggle()
+    end
+    ConnectInput(CloseOuter, CloseWindow)
+    ConnectInput(CloseInner, CloseWindow)
+    ConnectInput(CloseLabel, CloseWindow)
 
     local MainSectionOuter = Library:Create('Frame', {
         BackgroundColor3 = Library.BackgroundColor;
@@ -2857,6 +2921,7 @@ function Library:CreateWindow(...)
                 });
                 Library:AddToRegistry(Button, { BackgroundColor3 = 'MainColor'; });
                 local ButtonLabel = Library:CreateLabel({
+                    Active = true;
                     Size = UDim2.new(1, 0, 1, 0);
                     TextSize = 14;
                     Text = Name;
@@ -2918,11 +2983,13 @@ function Library:CreateWindow(...)
                     BoxOuter.Size = UDim2.new(1, 0, 0, (IsMobile and 28 or 20) + Size + 2 + 2);
                 end;
 
-                ConnectInput(Button, function()
+                local function SwitchToThisTab()
                     if not Library:MouseIsOverOpenedFrame() then
                         Tab:Show(); Tab:Resize();
                     end
-                end)
+                end
+                ConnectInput(Button, SwitchToThisTab)
+                ConnectInput(ButtonLabel, SwitchToThisTab)
 
                 Tab.Container = Container;
                 Tabbox.Tabs[Name] = Tab;
