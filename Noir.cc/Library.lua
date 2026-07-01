@@ -160,7 +160,7 @@ end;
 
 function Library:CreateLabel(Properties, IsHud)
     local _Instance = Library:Create('TextLabel', {
-        BackgroundTransparency = 1;
+        BackgroundTransparency = 0.999;
         Font = Library.Font;
         TextColor3 = Library.FontColor;
         TextSize = IsMobile and 14 or 16;
@@ -1652,7 +1652,7 @@ do
 
         -- Larger hit area for mobile
         local ToggleRegion = Library:Create('Frame', {
-            BackgroundTransparency = 1;
+            BackgroundTransparency = 0.999;
             Active = true;
             Size = UDim2.new(0, IsMobile and 220 or 170, 1, 0);
             ZIndex = 8;
