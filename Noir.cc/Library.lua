@@ -37,7 +37,7 @@ local function GetWindowSize()
 
     if IsMobile or Screen.X < 800 then
         width = math.min(680, Screen.X - 10)
-        height = math.min(400, Screen.Y - 50)
+        height = math.min(340, Screen.Y - 50)
     else
         width = 550
         height = 600
@@ -177,6 +177,7 @@ function Library:CreateLabel(Properties, IsHud)
     return Library:Create(_Instance, Properties);
 end;
 
+-- Updated draggable to support both mouse and touch
 function Library:MakeDraggable(Instance, Cutoff)
     Instance.Active = true;
     local dragging = false
@@ -404,9 +405,6 @@ end))
 
 -- Helper to handle both touch and mouse input on UI elements
 local function ConnectInput(instance, callback)
-    if not instance then return end
-    
-    -- Handle InputBegan for both mouse and touch
     instance.InputBegan:Connect(function(Input)
         if Input.UserInputType == Enum.UserInputType.MouseButton1
             or Input.UserInputType == Enum.UserInputType.Touch then
@@ -420,35 +418,6 @@ local function ConnectInput(instance, callback)
             callback({ UserInputType = Enum.UserInputType.Touch })
         end)
     end
-end
-
--- SPECIAL connect for toggles that ensures they work on mobile
-local function ConnectToggle(instance, callback)
-    if not instance then return end
-    
-    -- Make sure the instance can receive input
-    instance.Active = true
-    instance.Selectable = true
-    
-    -- Handle InputBegan
-    instance.InputBegan:Connect(function(Input)
-        if Input.UserInputType == Enum.UserInputType.MouseButton1
-            or Input.UserInputType == Enum.UserInputType.Touch then
-            callback(Input)
-        end
-    end)
-    
-    -- Mobile touch tap
-    if IsMobile then
-        instance.TouchTap:Connect(function()
-            callback({ UserInputType = Enum.UserInputType.Touch })
-        end)
-    end
-    
-    -- Also handle MouseButton1Click for desktop
-    instance.MouseButton1Click:Connect(function()
-        callback({ UserInputType = Enum.UserInputType.MouseButton1 })
-    end)
 end
 
 local BaseAddons = {};
@@ -1428,29 +1397,27 @@ do
                 return true
             end
 
-            -- Use ConnectToggle for better mobile support
-            ConnectToggle(Button.Outer, function(Input)
-                if ValidateClick(Input) then
-                    if Button.Locked then return end
+            Button.Outer.InputBegan:Connect(function(Input)
+                if not ValidateClick(Input) then return end
+                if Button.Locked then return end
 
-                    if Button.DoubleClick then
-                        Library:RemoveFromRegistry(Button.Label)
-                        Library:AddToRegistry(Button.Label, { TextColor3 = 'AccentColor' })
-                        Button.Label.TextColor3 = Library.AccentColor
-                        Button.Label.Text = 'Are you sure?'
-                        Button.Locked = true
-                        local clicked = WaitForEvent(Button.Outer.InputBegan, IsMobile and 1 or 0.5, ValidateClick)
-                        Library:RemoveFromRegistry(Button.Label)
-                        Library:AddToRegistry(Button.Label, { TextColor3 = 'FontColor' })
-                        Button.Label.TextColor3 = Library.FontColor
-                        Button.Label.Text = Button.Text
-                        task.defer(rawset, Button, 'Locked', false)
-                        if clicked then Library:SafeCallback(Button.Func) end
-                        return
-                    end
-
-                    Library:SafeCallback(Button.Func);
+                if Button.DoubleClick then
+                    Library:RemoveFromRegistry(Button.Label)
+                    Library:AddToRegistry(Button.Label, { TextColor3 = 'AccentColor' })
+                    Button.Label.TextColor3 = Library.AccentColor
+                    Button.Label.Text = 'Are you sure?'
+                    Button.Locked = true
+                    local clicked = WaitForEvent(Button.Outer.InputBegan, IsMobile and 1 or 0.5, ValidateClick)
+                    Library:RemoveFromRegistry(Button.Label)
+                    Library:AddToRegistry(Button.Label, { TextColor3 = 'FontColor' })
+                    Button.Label.TextColor3 = Library.FontColor
+                    Button.Label.Text = Button.Text
+                    task.defer(rawset, Button, 'Locked', false)
+                    if clicked then Library:SafeCallback(Button.Func) end
+                    return
                 end
+
+                Library:SafeCallback(Button.Func);
             end)
         end
 
@@ -1645,9 +1612,8 @@ do
         return Textbox;
     end;
 
-    -- FIXED TOGGLE - Now works on mobile!
     function Funcs:AddToggle(Idx, Info)
-        assert(Info.Text, 'AddToggle: Missing `Text` string.')
+        assert(Info.Text, 'AddInput: Missing `Text` string.')
         local Toggle = {
             Value = Info.Default or false;
             Type = 'Toggle';
@@ -1658,7 +1624,7 @@ do
         local Groupbox = self;
         local Container = Groupbox.Container;
 
-        local toggleSize = IsMobile and 24 or 13
+        local toggleSize = IsMobile and 22 or 13
 
         local ToggleOuter = Library:Create('Frame', {
             BackgroundColor3 = Color3.new(0, 0, 0);
@@ -1698,21 +1664,13 @@ do
             Parent = ToggleLabel;
         });
 
-        -- Make the entire toggle area clickable - NO transparency blocking!
         local ToggleRegion = Library:Create('Frame', {
-            BackgroundTransparency = 1; -- Fully transparent so clicks pass through
+            BackgroundTransparency = 0.999;
             Active = true;
-            Selectable = true;
             Size = UDim2.new(0, IsMobile and 250 or 170, 1, 0);
             ZIndex = 50;
             Parent = ToggleOuter;
         });
-
-        -- Also make the inner and outer clickable directly
-        ToggleOuter.Active = true
-        ToggleOuter.Selectable = true
-        ToggleInner.Active = true
-        ToggleInner.Selectable = true
 
         Library:OnHighlight(ToggleRegion, ToggleOuter,
             { BorderColor3 = 'AccentColor' },
@@ -1746,21 +1704,25 @@ do
             Library:UpdateDependencyBoxes();
         end;
 
-        -- Use ConnectToggle for the region
-        ConnectToggle(ToggleRegion, function(Input)
-            if not Library:MouseIsOverOpenedFrame() then
-                Toggle:SetValue(not Toggle.Value)
-                Library:AttemptSave();
+        -- Fix: Use both InputBegan and TouchTap for mobile
+        ToggleRegion.InputBegan:Connect(function(Input)
+            if Input.UserInputType == Enum.UserInputType.MouseButton1 or Input.UserInputType == Enum.UserInputType.Touch then
+                if not Library:MouseIsOverOpenedFrame() then
+                    Toggle:SetValue(not Toggle.Value)
+                    Library:AttemptSave();
+                end
             end
         end)
         
-        -- Also connect directly to the outer frame for extra reliability
-        ConnectToggle(ToggleOuter, function(Input)
-            if not Library:MouseIsOverOpenedFrame() then
-                Toggle:SetValue(not Toggle.Value)
-                Library:AttemptSave();
-            end
-        end)
+        -- Additional touch support for mobile
+        if IsMobile then
+            ToggleRegion.TouchTap:Connect(function()
+                if not Library:MouseIsOverOpenedFrame() then
+                    Toggle:SetValue(not Toggle.Value)
+                    Library:AttemptSave();
+                end
+            end)
+        end
 
         if Toggle.Risky then
             Library:RemoveFromRegistry(ToggleLabel)
@@ -1935,7 +1897,7 @@ do
             end
         end)
 
-        -- Touch handler for mobile
+        -- Touch handler for mobile - FIXED
         SliderInner.InputBegan:Connect(function(Input)
             if Input.UserInputType == Enum.UserInputType.Touch
                 and not Library:MouseIsOverOpenedFrame() then
@@ -2266,7 +2228,7 @@ do
             end
         end
 
-        -- Make the dropdown clickable on mobile
+        -- Make the dropdown clickable on mobile - FIXED
         DropdownInner.Active = true
         ItemList.Active = true
         DropdownArrow.Active = true
