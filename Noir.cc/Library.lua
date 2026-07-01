@@ -2210,9 +2210,33 @@ do
                     end;
                 end
 
-                -- Use ConnectMobileTap for better mobile support
-                ConnectMobileTap(Button, SelectItem)
-                ConnectMobileTap(ButtonLabel, SelectItem)
+                -- Fix for mobile dropdown item selection
+                Button.Active = true
+                ButtonLabel.Active = true
+                
+                -- Mouse click
+                Button.MouseButton1Click:Connect(SelectItem)
+                ButtonLabel.MouseButton1Click:Connect(SelectItem)
+                
+                -- Touch on mobile
+                if IsMobile then
+                    Button.TouchTap:Connect(SelectItem)
+                    ButtonLabel.TouchTap:Connect(SelectItem)
+                end
+                
+                -- InputBegan for both mouse and touch
+                Button.InputBegan:Connect(function(Input)
+                    if Input.UserInputType == Enum.UserInputType.MouseButton1 
+                        or Input.UserInputType == Enum.UserInputType.Touch then
+                        SelectItem()
+                    end
+                end)
+                ButtonLabel.InputBegan:Connect(function(Input)
+                    if Input.UserInputType == Enum.UserInputType.MouseButton1 
+                        or Input.UserInputType == Enum.UserInputType.Touch then
+                        SelectItem()
+                    end
+                end)
 
                 Table:UpdateButton();
                 Dropdown:Display();
@@ -2262,16 +2286,59 @@ do
 
         local function ToggleDropdownOpen()
             if not Library:MouseIsOverOpenedFrame() then
-                if ListOuter.Visible then Dropdown:CloseDropdown();
-                else Dropdown:OpenDropdown(); end;
+                if ListOuter.Visible then 
+                    Dropdown:CloseDropdown();
+                else 
+                    Dropdown:OpenDropdown(); 
+                end;
             end
         end
 
-        -- Use ConnectMobileTap for better mobile support
-        ConnectMobileTap(DropdownOuter, ToggleDropdownOpen)
-        ConnectMobileTap(DropdownInner, ToggleDropdownOpen)
-        ConnectMobileTap(ItemList, ToggleDropdownOpen)
-        ConnectMobileTap(DropdownArrow, ToggleDropdownOpen)
+        -- FIX: Make the dropdown clickable on mobile - use multiple event types
+        DropdownOuter.Active = true
+        DropdownInner.Active = true
+        ItemList.Active = true
+        DropdownArrow.Active = true
+        
+        -- Mouse click
+        DropdownOuter.MouseButton1Click:Connect(ToggleDropdownOpen)
+        DropdownInner.MouseButton1Click:Connect(ToggleDropdownOpen)
+        ItemList.MouseButton1Click:Connect(ToggleDropdownOpen)
+        DropdownArrow.MouseButton1Click:Connect(ToggleDropdownOpen)
+        
+        -- Touch on mobile
+        if IsMobile then
+            DropdownOuter.TouchTap:Connect(ToggleDropdownOpen)
+            DropdownInner.TouchTap:Connect(ToggleDropdownOpen)
+            ItemList.TouchTap:Connect(ToggleDropdownOpen)
+            DropdownArrow.TouchTap:Connect(ToggleDropdownOpen)
+        end
+        
+        -- InputBegan for both
+        DropdownOuter.InputBegan:Connect(function(Input)
+            if Input.UserInputType == Enum.UserInputType.MouseButton1 
+                or Input.UserInputType == Enum.UserInputType.Touch then
+                ToggleDropdownOpen()
+            end
+        end)
+        DropdownInner.InputBegan:Connect(function(Input)
+            if Input.UserInputType == Enum.UserInputType.MouseButton1 
+                or Input.UserInputType == Enum.UserInputType.Touch then
+                ToggleDropdownOpen()
+            end
+        end)
+        ItemList.InputBegan:Connect(function(Input)
+            if Input.UserInputType == Enum.UserInputType.MouseButton1 
+                or Input.UserInputType == Enum.UserInputType.Touch then
+                ToggleDropdownOpen()
+            end
+        end)
+        DropdownArrow.InputBegan:Connect(function(Input)
+            if Input.UserInputType == Enum.UserInputType.MouseButton1 
+                or Input.UserInputType == Enum.UserInputType.Touch then
+                ToggleDropdownOpen()
+            end
+        end)
 
         Library:GiveSignal(InputService.InputBegan:Connect(function(Input)
             if Input.UserInputType == Enum.UserInputType.MouseButton1
