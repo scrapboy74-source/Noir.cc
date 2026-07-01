@@ -14,19 +14,6 @@ local IsMobile = InputService.TouchEnabled and not InputService.KeyboardEnabled
 local ScreenSize = workspace.CurrentCamera.ViewportSize
 local IsSmallScreen = ScreenSize.X < 800
 
--- Helper function to get touch position on mobile or mouse position on desktop
-local function GetTouchPosition()
-    if IsMobile then
-        local touches = InputService:GetTouchInputs()
-        if #touches > 0 then
-            return touches[1].Position
-        end
-        return Vector2.new(0, 0)
-    else
-        return Vector2.new(Mouse.X, Mouse.Y)
-    end
-end
-
 local function GetScreenSize()
     return workspace.CurrentCamera.ViewportSize
 end
@@ -36,13 +23,20 @@ local function GetWindowSize()
     local width, height
 
     if IsMobile or Screen.X < 800 then
+        -- Touch device (or narrow screen): prioritize fitting the ACTUAL
+        -- viewport. Landscape phones report a wide Screen.X but still have
+        -- limited height, so height must be derived from Screen.Y, not
+        -- assumed from width.
         width = math.min(680, Screen.X - 10)
         height = math.min(340, Screen.Y - 50)
     else
+        -- Desktop
         width = 550
         height = 600
     end
 
+    -- Hard clamp: the window can never be bigger than the screen itself,
+    -- regardless of which branch above picked it.
     width = math.min(width, Screen.X - 10)
     height = math.min(height, Screen.Y - 30)
 
@@ -109,7 +103,7 @@ table.insert(Library.Signals, RenderStepped:Connect(function(Delta)
         if Hue > 1 then Hue = 0; end;
         Library.CurrentRainbowHue = Hue;
         Library.CurrentRainbowColor = Color3.fromHSV(Hue, 0.8, 1);
-    end;
+    end
 end))
 
 local function GetPlayersString()
@@ -183,7 +177,6 @@ function Library:MakeDraggable(Instance, Cutoff)
     local dragging = false
     local dragStart = nil
     local startPos = nil
-    local touchInput = nil
 
     local function OnInputBegan(Input)
         local isTouch = Input.UserInputType == Enum.UserInputType.Touch
@@ -201,7 +194,6 @@ function Library:MakeDraggable(Instance, Cutoff)
             dragging = true
             dragStart = position
             startPos = Instance.Position
-            if isTouch then touchInput = Input end
 
             local connection
             connection = RunService.RenderStepped:Connect(function()
@@ -212,6 +204,7 @@ function Library:MakeDraggable(Instance, Cutoff)
 
                 local currentPos
                 if isTouch then
+                    -- Get latest touch position
                     local touches = InputService:GetTouchInputs()
                     if #touches > 0 then
                         currentPos = touches[1].Position
@@ -243,7 +236,6 @@ function Library:MakeDraggable(Instance, Cutoff)
         if Input.UserInputType == Enum.UserInputType.Touch
             or Input.UserInputType == Enum.UserInputType.MouseButton1 then
             dragging = false
-            touchInput = nil
         end
     end
 
@@ -252,7 +244,7 @@ function Library:MakeDraggable(Instance, Cutoff)
 end;
 
 function Library:AddToolTip(InfoStr, HoverInstance)
-    if IsMobile then return end
+    if IsMobile then return end -- skip tooltips on mobile, no hover
     local X, Y = Library:GetTextBounds(InfoStr, Library.Font, 14);
     local Tooltip = Library:Create('Frame', {
         BackgroundColor3 = Library.MainColor,
@@ -309,28 +301,25 @@ function Library:OnHighlight(HighlightInstance, Instance, Properties, Properties
 end;
 
 function Library:MouseIsOverOpenedFrame()
-    local pos = GetTouchPosition()
+    local pos = IsMobile and InputService:GetTouchInputs()[1] and InputService:GetTouchInputs()[1].Position
+        or Vector2.new(Mouse.X, Mouse.Y)
     for Frame, _ in next, Library.OpenedFrames do
-        if Frame and Frame.Visible then
-            local AbsPos, AbsSize = Frame.AbsolutePosition, Frame.AbsoluteSize;
-            if pos.X >= AbsPos.X and pos.X <= AbsPos.X + AbsSize.X
-                and pos.Y >= AbsPos.Y and pos.Y <= AbsPos.Y + AbsSize.Y then
-                return true;
-            end;
+        local AbsPos, AbsSize = Frame.AbsolutePosition, Frame.AbsoluteSize;
+        if pos.X >= AbsPos.X and pos.X <= AbsPos.X + AbsSize.X
+            and pos.Y >= AbsPos.Y and pos.Y <= AbsPos.Y + AbsSize.Y then
+            return true;
         end;
     end;
-    return false;
 end;
 
 function Library:IsMouseOverFrame(Frame)
-    if not Frame then return false end
-    local pos = GetTouchPosition()
+    local pos = IsMobile and InputService:GetTouchInputs()[1] and InputService:GetTouchInputs()[1].Position
+        or Vector2.new(Mouse.X, Mouse.Y)
     local AbsPos, AbsSize = Frame.AbsolutePosition, Frame.AbsoluteSize;
     if pos.X >= AbsPos.X and pos.X <= AbsPos.X + AbsSize.X
         and pos.Y >= AbsPos.Y and pos.Y <= AbsPos.Y + AbsSize.Y then
         return true;
     end;
-    return false;
 end;
 
 function Library:UpdateDependencyBoxes()
@@ -408,27 +397,12 @@ end))
 
 -- Helper to handle both touch and mouse input on UI elements
 local function ConnectInput(instance, callback)
-    if not instance then return end
-    
     instance.InputBegan:Connect(function(Input)
         if Input.UserInputType == Enum.UserInputType.MouseButton1
             or Input.UserInputType == Enum.UserInputType.Touch then
             callback(Input)
         end
     end)
-end
-
--- Special helper for mobile buttons that might not trigger InputBegan properly
-local function ConnectMobileTap(instance, callback)
-    if not instance then return end
-    
-    ConnectInput(instance, callback)
-    
-    if IsMobile then
-        instance.TouchTap:Connect(function()
-            callback({ UserInputType = Enum.UserInputType.Touch })
-        end)
-    end
 end
 
 local BaseAddons = {};
@@ -486,6 +460,7 @@ do
         });
 
         DisplayFrame:GetPropertyChangedSignal('AbsolutePosition'):Connect(function()
+            -- Keep picker on screen for mobile
             local Screen = GetScreenSize()
             local px = math.clamp(DisplayFrame.AbsolutePosition.X, 0, Screen.X - 234)
             local py = math.clamp(DisplayFrame.AbsolutePosition.Y + 18, 0, Screen.Y - (Info.Transparency and 275 or 257))
@@ -873,8 +848,8 @@ do
         end;
 
         -- Touch/mouse input for SatVibMap
-        local function HandleSatVib(pos)
-            if not SatVibMap or not SatVibMap.Parent then return end
+        local function HandleSatVib(Input)
+            local pos = Input.Position
             local MinX = SatVibMap.AbsolutePosition.X
             local MaxX = MinX + SatVibMap.AbsoluteSize.X
             local MouseX = math.clamp(pos.X, MinX, MaxX)
@@ -890,49 +865,23 @@ do
             if Input.UserInputType == Enum.UserInputType.MouseButton1
                 or Input.UserInputType == Enum.UserInputType.Touch then
                 local connection
-                local function update()
-                    local pos
+                connection = Input.Changed:Connect(function()
                     if Input.UserInputType == Enum.UserInputType.Touch then
-                        local touches = InputService:GetTouchInputs()
-                        if #touches > 0 then
-                            pos = touches[1].Position
-                        else
-                            return
-                        end
-                    else
-                        pos = Vector2.new(Mouse.X, Mouse.Y)
+                        HandleSatVib(Input)
                     end
-                    HandleSatVib(pos)
+                end)
+                while InputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) do
+                    HandleSatVib({ Position = Vector2.new(Mouse.X, Mouse.Y) })
+                    RenderStepped:Wait()
                 end
-                
-                if Input.UserInputType == Enum.UserInputType.Touch then
-                    -- For touch, we need to track the touch movement
-                    connection = RunService.RenderStepped:Connect(function()
-                        local touches = InputService:GetTouchInputs()
-                        if #touches == 0 then
-                            if connection then connection:Disconnect() end
-                            return
-                        end
-                        HandleSatVib(touches[1].Position)
-                    end)
-                else
-                    connection = RunService.RenderStepped:Connect(function()
-                        if not InputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) then
-                            if connection then connection:Disconnect() end
-                            return
-                        end
-                        HandleSatVib(Vector2.new(Mouse.X, Mouse.Y))
-                    end)
-                end
-                -- Do initial update
-                update()
+                if connection then connection:Disconnect() end
                 Library:AttemptSave()
             end
         end)
 
         -- Touch/mouse for hue selector
-        local function HandleHue(pos)
-            if not HueSelectorInner or not HueSelectorInner.Parent then return end
+        local function HandleHue(Input)
+            local pos = Input.Position or Vector2.new(Mouse.X, Mouse.Y)
             local MinY = HueSelectorInner.AbsolutePosition.Y
             local MaxY = MinY + HueSelectorInner.AbsoluteSize.Y
             local MouseY = math.clamp(pos.Y, MinY, MaxY)
@@ -945,29 +894,19 @@ do
                 or Input.UserInputType == Enum.UserInputType.Touch then
                 local connection
                 if Input.UserInputType == Enum.UserInputType.Touch then
-                    connection = RunService.RenderStepped:Connect(function()
-                        local touches = InputService:GetTouchInputs()
-                        if #touches == 0 then
-                            if connection then connection:Disconnect() end
-                            return
-                        end
-                        HandleHue(touches[1].Position)
-                    end)
-                else
-                    connection = RunService.RenderStepped:Connect(function()
-                        if not InputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) then
-                            if connection then connection:Disconnect() end
-                            return
-                        end
-                        HandleHue(Vector2.new(Mouse.X, Mouse.Y))
+                    connection = Input.Changed:Connect(function()
+                        HandleHue(Input)
                     end)
                 end
-                HandleHue(Input.UserInputType == Enum.UserInputType.Touch and Input.Position or Vector2.new(Mouse.X, Mouse.Y))
+                while InputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) do
+                    HandleHue({ Position = Vector2.new(Mouse.X, Mouse.Y) })
+                    RenderStepped:Wait()
+                end
+                if connection then connection:Disconnect() end
                 Library:AttemptSave()
             end
         end)
 
-        -- Handle color picker display click
         DisplayFrame.InputBegan:Connect(function(Input)
             if (Input.UserInputType == Enum.UserInputType.MouseButton1 or Input.UserInputType == Enum.UserInputType.Touch)
                 and not Library:MouseIsOverOpenedFrame() then
@@ -988,7 +927,6 @@ do
                 if Input.UserInputType == Enum.UserInputType.MouseButton1
                     or Input.UserInputType == Enum.UserInputType.Touch then
                     local function handleTrans(pos)
-                        if not TransparencyBoxInner or not TransparencyBoxInner.Parent then return end
                         local MinX = TransparencyBoxInner.AbsolutePosition.X
                         local MaxX = MinX + TransparencyBoxInner.AbsoluteSize.X
                         local MouseX = math.clamp(pos.X, MinX, MaxX)
@@ -997,24 +935,15 @@ do
                     end
                     local connection
                     if Input.UserInputType == Enum.UserInputType.Touch then
-                        connection = RunService.RenderStepped:Connect(function()
-                            local touches = InputService:GetTouchInputs()
-                            if #touches == 0 then
-                                if connection then connection:Disconnect() end
-                                return
-                            end
-                            handleTrans(touches[1].Position)
-                        end)
-                    else
-                        connection = RunService.RenderStepped:Connect(function()
-                            if not InputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) then
-                                if connection then connection:Disconnect() end
-                                return
-                            end
-                            handleTrans(Vector2.new(Mouse.X, Mouse.Y))
+                        connection = Input.Changed:Connect(function()
+                            handleTrans(Input.Position)
                         end)
                     end
-                    handleTrans(Input.UserInputType == Enum.UserInputType.Touch and Input.Position or Vector2.new(Mouse.X, Mouse.Y))
+                    while InputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) do
+                        handleTrans(Vector2.new(Mouse.X, Mouse.Y))
+                        RenderStepped:Wait()
+                    end
+                    if connection then connection:Disconnect() end
                     Library:AttemptSave()
                 end
             end)
@@ -1255,6 +1184,7 @@ do
                     elseif Input.UserInputType == Enum.UserInputType.MouseButton2 then
                         Key = 'MB2';
                     elseif Input.UserInputType == Enum.UserInputType.Touch then
+                        -- On mobile, second touch cancels picking
                         Key = KeyPicker.Value
                     end;
                     Break = true; Picking = false;
@@ -1429,6 +1359,22 @@ do
         end
 
         local function InitEvents(Button)
+            local function WaitForEvent(event, timeout, validator)
+                local bindable = Instance.new('BindableEvent')
+                local connection = event:Once(function(...)
+                    if type(validator) == 'function' and validator(...) then
+                        bindable:Fire(true)
+                    else
+                        bindable:Fire(false)
+                    end
+                end)
+                task.delay(timeout, function()
+                    connection:disconnect()
+                    bindable:Fire(false)
+                end)
+                return bindable.Event:Wait()
+            end
+
             local function ValidateClick(Input)
                 if Library:MouseIsOverOpenedFrame() then return false end
                 if Input.UserInputType ~= Enum.UserInputType.MouseButton1
@@ -1438,8 +1384,7 @@ do
                 return true
             end
 
-            -- Use ConnectMobileTap for better mobile support
-            ConnectMobileTap(Button.Outer, function(Input)
+            Button.Outer.InputBegan:Connect(function(Input)
                 if not ValidateClick(Input) then return end
                 if Button.Locked then return end
 
@@ -1449,26 +1394,7 @@ do
                     Button.Label.TextColor3 = Library.AccentColor
                     Button.Label.Text = 'Are you sure?'
                     Button.Locked = true
-                    
-                    -- Wait for next click on mobile or desktop
-                    local function waitForClick()
-                        local bindable = Instance.new('BindableEvent')
-                        local connection
-                        local function onInput(input)
-                            if ValidateClick(input) then
-                                connection:Disconnect()
-                                bindable:Fire(true)
-                            end
-                        end
-                        connection = InputService.InputBegan:Connect(onInput)
-                        task.delay(IsMobile and 1.5 or 0.5, function()
-                            connection:Disconnect()
-                            bindable:Fire(false)
-                        end)
-                        return bindable.Event:Wait()
-                    end
-                    
-                    local clicked = waitForClick()
+                    local clicked = WaitForEvent(Button.Outer.InputBegan, IsMobile and 1 or 0.5, ValidateClick)
                     Library:RemoveFromRegistry(Button.Label)
                     Library:AddToRegistry(Button.Label, { TextColor3 = 'FontColor' })
                     Button.Label.TextColor3 = Library.FontColor
@@ -1685,7 +1611,7 @@ do
         local Groupbox = self;
         local Container = Groupbox.Container;
 
-        local toggleSize = IsMobile and 22 or 13
+        local toggleSize = IsMobile and 18 or 13
 
         local ToggleOuter = Library:Create('Frame', {
             BackgroundColor3 = Color3.new(0, 0, 0);
@@ -1708,9 +1634,9 @@ do
         Library:AddToRegistry(ToggleInner, { BackgroundColor3 = 'MainColor'; BorderColor3 = 'OutlineColor'; });
 
         local ToggleLabel = Library:CreateLabel({
-            Size = UDim2.new(0, IsMobile and 200 or 216, 1, 0);
+            Size = UDim2.new(0, 216, 1, 0);
             Position = UDim2.new(1, 6, 0, 0);
-            TextSize = IsMobile and 15 or 14;
+            TextSize = 14;
             Text = Info.Text;
             TextXAlignment = Enum.TextXAlignment.Left;
             ZIndex = 6;
@@ -1725,10 +1651,11 @@ do
             Parent = ToggleLabel;
         });
 
+        -- Larger hit area for mobile
         local ToggleRegion = Library:Create('Frame', {
             BackgroundTransparency = 0.999;
             Active = true;
-            Size = UDim2.new(0, IsMobile and 250 or 170, 1, 0);
+            Size = UDim2.new(0, IsMobile and 220 or 170, 1, 0);
             ZIndex = 50;
             Parent = ToggleOuter;
         });
@@ -1765,8 +1692,7 @@ do
             Library:UpdateDependencyBoxes();
         end;
 
-        -- Use ConnectMobileTap for better mobile support
-        ConnectMobileTap(ToggleRegion, function(Input)
+        ConnectInput(ToggleRegion, function(Input)
             if not Library:MouseIsOverOpenedFrame() then
                 Toggle:SetValue(not Toggle.Value)
                 Library:AttemptSave();
@@ -1808,7 +1734,7 @@ do
         if not Info.Compact then
             Library:CreateLabel({
                 Size = UDim2.new(1, 0, 0, 10);
-                TextSize = IsMobile and 15 or 14;
+                TextSize = 14;
                 Text = Info.Text;
                 TextXAlignment = Enum.TextXAlignment.Left;
                 TextYAlignment = Enum.TextYAlignment.Bottom;
@@ -1818,7 +1744,7 @@ do
             Groupbox:AddBlank(3);
         end
 
-        local sliderHeight = IsMobile and 25 or 13
+        local sliderHeight = IsMobile and 20 or 13
 
         local SliderOuter = Library:Create('Frame', {
             BackgroundColor3 = Color3.new(0, 0, 0);
@@ -1862,7 +1788,7 @@ do
 
         local DisplayLabel = Library:CreateLabel({
             Size = UDim2.new(1, 0, 1, 0);
-            TextSize = IsMobile and 15 or 14;
+            TextSize = 14;
             Text = 'Infinite';
             ZIndex = 9;
             Parent = SliderInner;
@@ -1914,12 +1840,15 @@ do
             Library:SafeCallback(Slider.Changed, Slider.Value);
         end;
 
-        -- Improved slider touch handler
-        local function HandleSliderTouch(touchPos)
-            if not SliderInner or not SliderInner.Parent then return end
+        local function HandleSliderInput(posX)
+            local mPos = posX
+            local gPos = Fill.Size.X.Offset
+            local Diff = mPos - (Fill.AbsolutePosition.X + gPos)
+            local nX = math.clamp(gPos + (mPos - posX) + Diff, 0, Slider.MaxSize)
+            -- simpler: just use absolute position
             local MinX = SliderInner.AbsolutePosition.X
-            local MaxX = MinX + SliderInner.AbsoluteSize.X
-            local nX = math.clamp(touchPos.X - MinX, 0, SliderInner.AbsoluteSize.X)
+            local MaxX = MinX + Slider.MaxSize
+            nX = math.clamp(posX - MinX, 0, Slider.MaxSize)
             local nValue = Slider:GetValueFromXOffset(nX)
             local OldValue = Slider.Value
             Slider.Value = nValue
@@ -1930,43 +1859,51 @@ do
             end
         end
 
-        -- Mouse handler
         SliderInner.InputBegan:Connect(function(Input)
             if Input.UserInputType == Enum.UserInputType.MouseButton1
                 and not Library:MouseIsOverOpenedFrame() then
-                local connection
-                connection = RunService.RenderStepped:Connect(function()
-                    if not InputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) then
-                        if connection then connection:Disconnect() end
-                        Library:AttemptSave()
-                        return
-                    end
-                    HandleSliderTouch(Vector2.new(Mouse.X, Mouse.Y))
-                end)
-                HandleSliderTouch(Vector2.new(Mouse.X, Mouse.Y))
-            end
-        end)
-
-        -- Touch handler for mobile
-        SliderInner.InputBegan:Connect(function(Input)
-            if Input.UserInputType == Enum.UserInputType.Touch
+                local mPos = Mouse.X;
+                local gPos = Fill.Size.X.Offset;
+                local Diff = mPos - (Fill.AbsolutePosition.X + gPos);
+                while InputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) do
+                    local nMPos = Mouse.X;
+                    local nX = math.clamp(gPos + (nMPos - mPos) + Diff, 0, Slider.MaxSize);
+                    local nValue = Slider:GetValueFromXOffset(nX);
+                    local OldValue = Slider.Value;
+                    Slider.Value = nValue;
+                    Slider:Display();
+                    if nValue ~= OldValue then
+                        Library:SafeCallback(Slider.Callback, Slider.Value);
+                        Library:SafeCallback(Slider.Changed, Slider.Value);
+                    end;
+                    RenderStepped:Wait();
+                end;
+                Library:AttemptSave();
+            elseif Input.UserInputType == Enum.UserInputType.Touch
                 and not Library:MouseIsOverOpenedFrame() then
+                local startX = Input.Position.X
+                local startGPos = Fill.Size.X.Offset
                 local connection
-                connection = RunService.RenderStepped:Connect(function()
-                    local touches = InputService:GetTouchInputs()
-                    if #touches == 0 then
+                connection = Input.Changed:Connect(function()
+                    local MinX = SliderInner.AbsolutePosition.X
+                    local nX = math.clamp(Input.Position.X - MinX, 0, Slider.MaxSize)
+                    local nValue = Slider:GetValueFromXOffset(nX)
+                    local OldValue = Slider.Value
+                    Slider.Value = nValue
+                    Slider:Display()
+                    if nValue ~= OldValue then
+                        Library:SafeCallback(Slider.Callback, Slider.Value)
+                        Library:SafeCallback(Slider.Changed, Slider.Value)
+                    end
+                end)
+                Input.Changed:Connect(function()
+                    if Input.UserInputState == Enum.UserInputState.End then
                         if connection then connection:Disconnect() end
                         Library:AttemptSave()
-                        return
                     end
-                    HandleSliderTouch(touches[1].Position)
                 end)
-                local touches = InputService:GetTouchInputs()
-                if #touches > 0 then
-                    HandleSliderTouch(touches[1].Position)
-                end
-            end
-        end)
+            end;
+        end);
 
         Slider:Display();
         Groupbox:AddBlank(Info.BlankSize or 6);
@@ -1997,7 +1934,7 @@ do
         if not Info.Compact then
             Library:CreateLabel({
                 Size = UDim2.new(1, 0, 0, 10);
-                TextSize = IsMobile and 15 or 14;
+                TextSize = 14;
                 Text = Info.Text;
                 TextXAlignment = Enum.TextXAlignment.Left;
                 TextYAlignment = Enum.TextYAlignment.Bottom;
@@ -2011,7 +1948,7 @@ do
             BackgroundColor3 = Color3.new(0, 0, 0);
             BorderColor3 = Color3.new(0, 0, 0);
             Active = true;
-            Size = UDim2.new(1, -4, 0, IsMobile and 32 or 20);
+            Size = UDim2.new(1, -4, 0, IsMobile and 28 or 20);
             ZIndex = 5;
             Parent = Container;
         });
@@ -2048,7 +1985,7 @@ do
         local ItemList = Library:CreateLabel({
             Position = UDim2.new(0, 5, 0, 0);
             Size = UDim2.new(1, -5, 1, 0);
-            TextSize = IsMobile and 15 or 14;
+            TextSize = 14;
             Text = '--';
             TextXAlignment = Enum.TextXAlignment.Left;
             TextWrapped = true;
@@ -2063,7 +2000,7 @@ do
 
         if type(Info.Tooltip) == 'string' then Library:AddToolTip(Info.Tooltip, DropdownOuter) end
 
-        local MAX_DROPDOWN_ITEMS = IsMobile and 6 or 8;
+        local MAX_DROPDOWN_ITEMS = IsMobile and 5 or 8;
 
         local ListOuter = Library:Create('Frame', {
             BackgroundColor3 = Color3.new(0, 0, 0);
@@ -2076,14 +2013,15 @@ do
             local Screen = GetScreenSize()
             local px = math.clamp(DropdownOuter.AbsolutePosition.X, 0, Screen.X - DropdownOuter.AbsoluteSize.X)
             local py = DropdownOuter.AbsolutePosition.Y + DropdownOuter.Size.Y.Offset + 1
-            if py + (MAX_DROPDOWN_ITEMS * (IsMobile and 32 or 20)) > Screen.Y then
-                py = DropdownOuter.AbsolutePosition.Y - (MAX_DROPDOWN_ITEMS * (IsMobile and 32 or 20)) - 2
+            -- if it would go off bottom, flip above
+            if py + (MAX_DROPDOWN_ITEMS * (IsMobile and 28 or 20)) > Screen.Y then
+                py = DropdownOuter.AbsolutePosition.Y - (MAX_DROPDOWN_ITEMS * (IsMobile and 28 or 20)) - 2
             end
             ListOuter.Position = UDim2.fromOffset(px, py)
         end;
 
         local function RecalculateListSize(YSize)
-            ListOuter.Size = UDim2.fromOffset(DropdownOuter.AbsoluteSize.X, YSize or (MAX_DROPDOWN_ITEMS * (IsMobile and 32 or 20) + 2))
+            ListOuter.Size = UDim2.fromOffset(DropdownOuter.AbsoluteSize.X, YSize or (MAX_DROPDOWN_ITEMS * (IsMobile and 28 or 20) + 2))
         end;
 
         RecalculateListPosition();
@@ -2110,7 +2048,7 @@ do
             Parent = ListInner;
             TopImage = 'rbxasset://textures/ui/Scroll/scroll-middle.png',
             BottomImage = 'rbxasset://textures/ui/Scroll/scroll-middle.png',
-            ScrollBarThickness = IsMobile and 6 or 3,
+            ScrollBarThickness = IsMobile and 5 or 3,
             ScrollBarImageColor3 = Library.AccentColor,
             ScrollingEnabled = true;
         });
@@ -2158,7 +2096,7 @@ do
                     BackgroundColor3 = Library.MainColor;
                     BorderColor3 = Library.OutlineColor;
                     BorderMode = Enum.BorderMode.Middle;
-                    Size = UDim2.new(1, -1, 0, IsMobile and 32 or 20);
+                    Size = UDim2.new(1, -1, 0, IsMobile and 28 or 20);
                     ZIndex = 23; Active = true,
                     Parent = Scrolling;
                 });
@@ -2167,7 +2105,7 @@ do
                     Active = true;
                     Size = UDim2.new(1, -6, 1, 0);
                     Position = UDim2.new(0, 6, 0, 0);
-                    TextSize = IsMobile and 15 or 14;
+                    TextSize = 14;
                     Text = Value;
                     TextXAlignment = Enum.TextXAlignment.Left;
                     ZIndex = 25;
@@ -2188,7 +2126,7 @@ do
                     Library.RegistryMap[ButtonLabel].Properties.TextColor3 = Selected and 'AccentColor' or 'FontColor';
                 end;
 
-                local function SelectItem()
+                local function SelectItem(Input)
                     local Try = not Selected;
                     if Dropdown:GetActiveValues() == 1 and (not Try) and (not Info.AllowNull) then
                     else
@@ -2210,40 +2148,16 @@ do
                     end;
                 end
 
-                -- Fix for mobile dropdown item selection
                 Button.Active = true
-                ButtonLabel.Active = true
-                
-                -- Mouse click
-                Button.MouseButton1Click:Connect(SelectItem)
-                ButtonLabel.MouseButton1Click:Connect(SelectItem)
-                
-                -- Touch on mobile
-                if IsMobile then
-                    Button.TouchTap:Connect(SelectItem)
-                    ButtonLabel.TouchTap:Connect(SelectItem)
-                end
-                
-                -- InputBegan for both mouse and touch
-                Button.InputBegan:Connect(function(Input)
-                    if Input.UserInputType == Enum.UserInputType.MouseButton1 
-                        or Input.UserInputType == Enum.UserInputType.Touch then
-                        SelectItem()
-                    end
-                end)
-                ButtonLabel.InputBegan:Connect(function(Input)
-                    if Input.UserInputType == Enum.UserInputType.MouseButton1 
-                        or Input.UserInputType == Enum.UserInputType.Touch then
-                        SelectItem()
-                    end
-                end)
+                ConnectInput(ButtonLabel, SelectItem)
+                ConnectInput(Button, SelectItem)
 
                 Table:UpdateButton();
                 Dropdown:Display();
                 Buttons[Button] = Table;
             end;
 
-            local itemH = IsMobile and 32 or 20
+            local itemH = IsMobile and 28 or 20
             Scrolling.CanvasSize = UDim2.fromOffset(0, (Count * itemH) + 1);
             local Y = math.clamp(Count * itemH, 0, MAX_DROPDOWN_ITEMS * itemH) + 1;
             RecalculateListSize(Y);
@@ -2286,71 +2200,31 @@ do
 
         local function ToggleDropdownOpen()
             if not Library:MouseIsOverOpenedFrame() then
-                if ListOuter.Visible then 
-                    Dropdown:CloseDropdown();
-                else 
-                    Dropdown:OpenDropdown(); 
-                end;
+                if ListOuter.Visible then Dropdown:CloseDropdown();
+                else Dropdown:OpenDropdown(); end;
             end
         end
 
-        -- FIX: Make the dropdown clickable on mobile - use multiple event types
-        DropdownOuter.Active = true
+        -- The arrow icon and text label are drawn ON TOP of DropdownOuter
+        -- (higher ZIndex), so a tap on them never reached DropdownOuter's
+        -- own handler and just got swallowed. Wire every visible layer.
         DropdownInner.Active = true
         ItemList.Active = true
         DropdownArrow.Active = true
-        
-        -- Mouse click
-        DropdownOuter.MouseButton1Click:Connect(ToggleDropdownOpen)
-        DropdownInner.MouseButton1Click:Connect(ToggleDropdownOpen)
-        ItemList.MouseButton1Click:Connect(ToggleDropdownOpen)
-        DropdownArrow.MouseButton1Click:Connect(ToggleDropdownOpen)
-        
-        -- Touch on mobile
-        if IsMobile then
-            DropdownOuter.TouchTap:Connect(ToggleDropdownOpen)
-            DropdownInner.TouchTap:Connect(ToggleDropdownOpen)
-            ItemList.TouchTap:Connect(ToggleDropdownOpen)
-            DropdownArrow.TouchTap:Connect(ToggleDropdownOpen)
-        end
-        
-        -- InputBegan for both
-        DropdownOuter.InputBegan:Connect(function(Input)
-            if Input.UserInputType == Enum.UserInputType.MouseButton1 
-                or Input.UserInputType == Enum.UserInputType.Touch then
-                ToggleDropdownOpen()
-            end
-        end)
-        DropdownInner.InputBegan:Connect(function(Input)
-            if Input.UserInputType == Enum.UserInputType.MouseButton1 
-                or Input.UserInputType == Enum.UserInputType.Touch then
-                ToggleDropdownOpen()
-            end
-        end)
-        ItemList.InputBegan:Connect(function(Input)
-            if Input.UserInputType == Enum.UserInputType.MouseButton1 
-                or Input.UserInputType == Enum.UserInputType.Touch then
-                ToggleDropdownOpen()
-            end
-        end)
-        DropdownArrow.InputBegan:Connect(function(Input)
-            if Input.UserInputType == Enum.UserInputType.MouseButton1 
-                or Input.UserInputType == Enum.UserInputType.Touch then
-                ToggleDropdownOpen()
-            end
-        end)
+        ConnectInput(DropdownOuter, ToggleDropdownOpen)
+        ConnectInput(DropdownInner, ToggleDropdownOpen)
+        ConnectInput(ItemList, ToggleDropdownOpen)
+        ConnectInput(DropdownArrow, ToggleDropdownOpen)
 
         Library:GiveSignal(InputService.InputBegan:Connect(function(Input)
             if Input.UserInputType == Enum.UserInputType.MouseButton1
                 or Input.UserInputType == Enum.UserInputType.Touch then
                 local pos = Input.UserInputType == Enum.UserInputType.Touch
                     and Input.Position or Vector2.new(Mouse.X, Mouse.Y)
-                if ListOuter.Visible then
-                    local AbsPos, AbsSize = ListOuter.AbsolutePosition, ListOuter.AbsoluteSize;
-                    if pos.X < AbsPos.X or pos.X > AbsPos.X + AbsSize.X
-                        or pos.Y < (AbsPos.Y - 20 - 1) or pos.Y > AbsPos.Y + AbsSize.Y then
-                        Dropdown:CloseDropdown();
-                    end;
+                local AbsPos, AbsSize = ListOuter.AbsolutePosition, ListOuter.AbsoluteSize;
+                if pos.X < AbsPos.X or pos.X > AbsPos.X + AbsSize.X
+                    or pos.Y < (AbsPos.Y - 20 - 1) or pos.Y > AbsPos.Y + AbsSize.Y then
+                    Dropdown:CloseDropdown();
                 end;
             end;
         end))
@@ -2662,6 +2536,7 @@ function Library:CreateWindow(...)
     if type(Config.TabPadding) ~= 'number' then Config.TabPadding = 0 end
     if type(Config.MenuFadeTime) ~= 'number' then Config.MenuFadeTime = 0.2 end
 
+    -- Use responsive sizing
     if typeof(Config.Size) ~= 'UDim2' then Config.Size = GetWindowSize() end
 
     if Config.Center or IsMobile then
@@ -2685,6 +2560,7 @@ function Library:CreateWindow(...)
 
     Library:MakeDraggable(Outer, IsMobile and 34 or 25);
 
+    -- Update size if screen changes (orientation change on mobile)
     workspace.CurrentCamera:GetPropertyChangedSignal('ViewportSize'):Connect(function()
         if not Config.Size or Config.Size == GetWindowSize() then
             Outer.Size = GetWindowSize()
@@ -2715,6 +2591,8 @@ function Library:CreateWindow(...)
     });
     Library.RegistryMap[WindowLabel].Properties.TextColor3 = 'AccentColor';
 
+    -- Close button: small square, matches the library's border/fill style
+    -- (not a circle), sits in the top-right corner of the title bar.
     local closeSize = IsMobile and 20 or 16
     local CloseOuter = Library:Create('Frame', {
         AnchorPoint = Vector2.new(1, 0);
@@ -2754,9 +2632,9 @@ function Library:CreateWindow(...)
     local function CloseWindow()
         Library:Toggle()
     end
-    ConnectMobileTap(CloseOuter, CloseWindow)
-    ConnectMobileTap(CloseInner, CloseWindow)
-    ConnectMobileTap(CloseLabel, CloseWindow)
+    ConnectInput(CloseOuter, CloseWindow)
+    ConnectInput(CloseInner, CloseWindow)
+    ConnectInput(CloseLabel, CloseWindow)
 
     local MainSectionOuter = Library:Create('Frame', {
         BackgroundColor3 = Library.BackgroundColor;
@@ -2848,6 +2726,8 @@ function Library:CreateWindow(...)
             Parent = TabContainer;
         });
 
+        -- Derive the scrollable content height from the actual window size so it
+        -- always fits inside the visible tab area, on any screen size.
         local sideHeight = Config.Size.Y.Offset - (IsMobile and 90 or 90)
         if sideHeight < 100 then sideHeight = 100 end
 
@@ -3108,8 +2988,8 @@ function Library:CreateWindow(...)
                         Tab:Show(); Tab:Resize();
                     end
                 end
-                ConnectMobileTap(Button, SwitchToThisTab)
-                ConnectMobileTap(ButtonLabel, SwitchToThisTab)
+                ConnectInput(Button, SwitchToThisTab)
+                ConnectInput(ButtonLabel, SwitchToThisTab)
 
                 Tab.Container = Container;
                 Tabbox.Tabs[Name] = Tab;
@@ -3127,7 +3007,7 @@ function Library:CreateWindow(...)
         function Tab:AddLeftTabbox(Name) return Tab:AddTabbox({ Name = Name, Side = 1; }); end;
         function Tab:AddRightTabbox(Name) return Tab:AddTabbox({ Name = Name, Side = 2; }); end;
 
-        ConnectMobileTap(TabButton, function()
+        ConnectInput(TabButton, function()
             Tab:ShowTab();
         end)
 
